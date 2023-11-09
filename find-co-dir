@@ -1,0 +1,68 @@
+#!/usr/bin/env ruby
+#
+# Add the following to:
+# echo ${SHELL}rc
+#
+# xtitle () { echo -n "\033]2;$1\007" }
+# c() { 
+#    cd "$(find-co-dir "$@")"; xtitle `pwd`
+# } 
+#
+# USAGE: c <repo-prefix>
+
+moi=`whoami`.strip
+checkout_patterns = ENV['CHECKOUTS'] || %W[
+        /home/#{moi}/public/repos/*
+        /home/#{moi}/dev/*
+    ].join(':')
+
+class String
+    def fsplit; split(File::Separator); end
+end
+module Enumerable
+    def take_while
+        inject([]) { |memo, el| yield(el) ? (memo << el) : (return memo) }
+    end
+end
+
+def exit_with(user_message, value_to_shell = user_message)
+    $stderr.puts("#{user_message}")
+    $stdout.puts(value_to_shell)
+    exit
+end
+
+exit_with("/u/#{moi}/dev") unless ARGV[0]
+checkout_dir = /^#{ARGV.shift}/
+checkout_subdirs = ARGV.collect { |d| d + '*' }
+
+checkouts = checkout_patterns.split(':').
+    collect { |pattern| Dir[pattern] }.flatten.uniq
+checkouts.empty? && (
+    $stderr.puts(
+        "Can't find any checkouts matching #{checkout_dir.inspect} in\n  " +
+        checkout_patterns.split(':').join("\n  "))
+    exit 1
+    )
+
+matching_checkouts = checkouts.select {
+    |co| File.basename(co).match(checkout_dir) }
+matching_subdirs = matching_checkouts.
+    collect { |co| Dir[File.join(co, *checkout_subdirs)] }.
+    flatten.
+    select { |f| File.directory?(f) }
+
+common_prefix = File.join(checkouts.inject(checkouts[0].fsplit) {
+    |memo, path|
+    memo.zip(path.fsplit).take_while { |a,b| a==b }.collect { |a,b| a } })
+
+case matching_subdirs.length
+    when 0
+        $stderr.puts("No checkout found for #{ARGV[0].inspect}")
+    when 1
+        exit_with(matching_subdirs[0])
+    else
+        without_bases = matching_subdirs.
+            collect { |d| d.sub(common_prefix + '/', '') }
+        exit_with("Changing to first of:\n  #{without_bases.join("\n  ")}",
+            matching_subdirs[0])
+end
